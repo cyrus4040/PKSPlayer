@@ -88,6 +88,15 @@ class PlayerActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         st = Settings.get(this)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        // draw video behind the camera cut-out (like MX Player) - Fit mode keeps clear of it via insets in PlayerScreen
+        if (Build.VERSION.SDK_INT >= 28) {
+            val lp = window.attributes
+            lp.layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= 30)
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            window.attributes = lp
+        }
+        if (Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowInsetsControllerCompat(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.systemBars())

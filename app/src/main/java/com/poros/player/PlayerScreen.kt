@@ -6,7 +6,8 @@ import android.media.AudioManager
 import android.util.TypedValue
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -21,6 +22,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -68,6 +70,8 @@ fun PlayerScreen(act: PlayerActivity) {
     var bPos by remember { mutableStateOf<Long?>(null) }
     var sleepMinutes by remember { mutableIntStateOf(0) }
     var fastHold by remember { mutableStateOf(false) }
+    var moreOpen by remember { mutableStateOf(false) }
+    var hudText by remember { mutableStateOf("") }
 
     val audio = remember { act.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val maxVol = remember { audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) }
@@ -98,10 +102,14 @@ fun PlayerScreen(act: PlayerActivity) {
             delay(250)
         }
     }
-    LaunchedEffect(showControls, isPlaying, locked, dialog) {
-        if (showControls && isPlaying && dialog == null) { delay(3500); showControls = false }
+    LaunchedEffect(showControls, isPlaying, locked, dialog, seeking, moreOpen) {
+        if (showControls && isPlaying && dialog == null && !seeking) { delay(3500); showControls = false }
     }
-    LaunchedEffect(hud) { if (hud != null) { delay(900); hud = null } }
+    LaunchedEffect(showControls) { if (!showControls) moreOpen = false }
+    LaunchedEffect(hud) {
+        val h = hud
+        if (h != null) { hudText = h; delay(900); hud = null }
+    }
     LaunchedEffect(sleepMinutes) {
         if (sleepMinutes > 0) {
             delay(sleepMinutes * 60_000L)
@@ -147,7 +155,9 @@ fun PlayerScreen(act: PlayerActivity) {
                     )
                 }
             },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize().then(
+                if (resizeIdx == 0) Modifier.windowInsetsPadding(WindowInsets.displayCutout) else Modifier
+            )
         )
 
         if (!act.inPip) {
@@ -214,10 +224,19 @@ fun PlayerScreen(act: PlayerActivity) {
                     }
             )
 
-            hud?.let {
+            val cutoutPad = Modifier.windowInsetsPadding(WindowInsets.displayCutout)
+            val ease = FastOutSlowInEasing
+
+            // ---------------- HUD (volume / brightness / seek text) ----------------
+            AnimatedVisibility(
+                visible = hud != null,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 72.dp),
+                enter = fadeIn(tween(150)) + scaleIn(tween(150, easing = ease), initialScale = 0.9f),
+                exit = fadeOut(tween(300)) + scaleOut(tween(300, easing = ease), targetScale = 0.9f)
+            ) {
                 Text(
-                    it, color = Color.White,
-                    modifier = Modifier.align(Alignment.Center)
+                    hudText, color = Color.White,
+                    modifier = Modifier
                         .background(Color(0xAA000000), RoundedCornerShape(12.dp))
                         .padding(horizontal = 20.dp, vertical = 10.dp),
                     style = MaterialTheme.typography.titleLarge
@@ -228,23 +247,35 @@ fun PlayerScreen(act: PlayerActivity) {
                 Text(
                     "A-B: ${fmt(aPos!!)} → ${bPos?.let { fmt(it) } ?: "?"}",
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp),
+                    modifier = Modifier.align(Alignment.TopEnd).then(cutoutPad).statusBarsPadding().padding(12.dp),
                     style = MaterialTheme.typography.labelLarge
                 )
             }
 
-            AnimatedVisibility(showControls && locked, modifier = Modifier.align(Alignment.CenterStart)) {
+            // ---------------- unlock button (only while locked) ----------------
+            AnimatedVisibility(
+                visible = showControls && locked,
+                modifier = Modifier.align(Alignment.CenterStart),
+                enter = fadeIn(tween(250, easing = ease)) + scaleIn(tween(250, easing = ease), initialScale = 0.8f),
+                exit = fadeOut(tween(250, easing = ease)) + scaleOut(tween(250, easing = ease), targetScale = 0.8f)
+            ) {
                 IconButton(
                     onClick = { locked = false },
-                    modifier = Modifier.padding(24.dp).background(Color(0x99000000), RoundedCornerShape(50))
+                    modifier = cutoutPad.padding(24.dp).background(Color(0x99000000), RoundedCornerShape(50))
                 ) { Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = MaterialTheme.colorScheme.primary) }
             }
 
             // ---------------- top bar ----------------
-            AnimatedVisibility(showControls && !locked, modifier = Modifier.align(Alignment.TopCenter)) {
+            AnimatedVisibility(
+                visible = showControls && !locked,
+                modifier = Modifier.align(Alignment.TopCenter),
+                enter = fadeIn(tween(250, easing = ease)) + slideInVertically(tween(300, easing = ease)) { -it / 2 },
+                exit = fadeOut(tween(200, easing = ease)) + slideOutVertically(tween(250, easing = ease)) { -it / 2 }
+            ) {
                 Row(
                     Modifier.fillMaxWidth()
                         .background(Brush.verticalGradient(listOf(Color(0xCC000000), Color.Transparent)))
+                        .then(cutoutPad)
                         .statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -253,12 +284,6 @@ fun PlayerScreen(act: PlayerActivity) {
                     }
                     Text(title, color = Color.White, maxLines = 1, modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.titleMedium)
-                    TextButton(onClick = { dialog = "speed" }) {
-                        Text("${speed}x", color = MaterialTheme.colorScheme.primary)
-                    }
-                    TextButton(onClick = { dialog = "decoder" }) {
-                        Text(listOf("HW", "HW+", "SW")[st.decoder.coerceIn(0, 2)], color = MaterialTheme.colorScheme.primary)
-                    }
                     IconButton(onClick = {
                         landscape = !landscape
                         act.requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -267,45 +292,94 @@ fun PlayerScreen(act: PlayerActivity) {
                 }
             }
 
-            // ---------------- bottom controls ----------------
-            AnimatedVisibility(showControls && !locked, modifier = Modifier.align(Alignment.BottomCenter)) {
+            // ---------------- centre: -10s / play-pause / +10s ----------------
+            AnimatedVisibility(
+                visible = showControls && !locked,
+                modifier = Modifier.align(Alignment.Center),
+                enter = fadeIn(tween(250, easing = ease)) + scaleIn(tween(300, easing = ease), initialScale = 0.85f),
+                exit = fadeOut(tween(200, easing = ease)) + scaleOut(tween(250, easing = ease), targetScale = 0.85f)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(110.dp)
+                ) {
+                    IconButton(onClick = { seekBy(-10_000) }, modifier = Modifier.size(56.dp)) {
+                        Icon(Icons.Default.Replay10, contentDescription = "-10s", tint = Color.White,
+                            modifier = Modifier.size(36.dp))
+                    }
+                    IconButton(onClick = { seekBy(10_000) }, modifier = Modifier.size(56.dp)) {
+                        Icon(Icons.Default.Forward10, contentDescription = "+10s", tint = Color.White,
+                            modifier = Modifier.size(36.dp))
+                    }
+                }
+            }
+
+            // ---------------- bottom panel ----------------
+            AnimatedVisibility(
+                visible = showControls && !locked,
+                modifier = Modifier.align(Alignment.BottomCenter),
+                enter = fadeIn(tween(250, easing = ease)) + slideInVertically(tween(300, easing = ease)) { it / 2 },
+                exit = fadeOut(tween(200, easing = ease)) + slideOutVertically(tween(250, easing = ease)) { it / 2 }
+            ) {
                 Column(
                     Modifier.fillMaxWidth()
                         .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xDD000000))))
+                        .then(cutoutPad)
                         .navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
-                    // tools row
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                        ToolButton(Icons.Default.Subtitles, "Subtitles") { dialog = "sub" }
-                        ToolButton(Icons.Default.Audiotrack, "Audio track") { dialog = "audio" }
-                        ToolButton(Icons.Default.Equalizer, "Equalizer & boost") { dialog = "fx" }
-                        ToolButton(Icons.Default.Speed, "Speed") { dialog = "speed" }
-                        ToolButton(
-                            Icons.Default.Repeat, "A-B repeat",
-                            tint = if (aPos != null) MaterialTheme.colorScheme.primary else Color.White
-                        ) {
-                            when {
-                                aPos == null -> { aPos = player.currentPosition; hud = "A set" }
-                                bPos == null -> { bPos = player.currentPosition; hud = "B set • looping" }
-                                else -> { aPos = null; bPos = null; hud = "A-B off" }
+                    // tools row: 4 icons + arrow, the arrow opens the rest
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState())) {
+                            ToolButton(Icons.Default.Subtitles, "Subtitles") { dialog = "sub" }
+                            ToolButton(Icons.Default.Audiotrack, "Audio track") { dialog = "audio" }
+                            ToolButton(
+                                Icons.Default.Speed, "Speed",
+                                tint = if (speed != 1f) MaterialTheme.colorScheme.primary else Color.White
+                            ) { dialog = "speed" }
+                            ToolButton(Icons.Default.Equalizer, "Equalizer & boost") { dialog = "fx" }
+                            AnimatedVisibility(
+                                visible = moreOpen,
+                                enter = expandHorizontally(tween(300, easing = ease)) + fadeIn(tween(300)),
+                                exit = shrinkHorizontally(tween(250, easing = ease)) + fadeOut(tween(200))
+                            ) {
+                                Row {
+                                    ToolButton(
+                                        Icons.Default.Repeat, "A-B repeat",
+                                        tint = if (aPos != null) MaterialTheme.colorScheme.primary else Color.White
+                                    ) {
+                                        when {
+                                            aPos == null -> { aPos = player.currentPosition; hud = "A set" }
+                                            bPos == null -> { bPos = player.currentPosition; hud = "B set • looping" }
+                                            else -> { aPos = null; bPos = null; hud = "A-B off" }
+                                        }
+                                    }
+                                    ToolButton(
+                                        Icons.Default.Timer, "Sleep timer",
+                                        tint = if (sleepMinutes > 0) MaterialTheme.colorScheme.primary else Color.White
+                                    ) { dialog = "sleep" }
+                                    ToolButton(Icons.Default.BookmarkAdd, "Add bookmark") {
+                                        val id = player.currentMediaItem?.mediaId
+                                        if (id != null) { st.addBookmark(id, player.currentPosition); hud = "Bookmarked ${fmt(player.currentPosition)}" }
+                                    }
+                                    ToolButton(Icons.Default.Bookmarks, "Bookmarks") { dialog = "bm" }
+                                    ToolButton(Icons.Default.PhotoCamera, "Screenshot") { act.screenshot() }
+                                    ToolButton(Icons.Default.Memory, "Decoder") { dialog = "decoder" }
+                                    ToolButton(Icons.Default.NavigateBefore, "Previous frame") { stepFrame(-1) }
+                                    ToolButton(Icons.Default.NavigateNext, "Next frame") { stepFrame(1) }
+                                }
                             }
                         }
-                        ToolButton(
-                            Icons.Default.Timer, "Sleep timer",
-                            tint = if (sleepMinutes > 0) MaterialTheme.colorScheme.primary else Color.White
-                        ) { dialog = "sleep" }
-                        ToolButton(Icons.Default.BookmarkAdd, "Add bookmark") {
-                            val id = player.currentMediaItem?.mediaId
-                            if (id != null) { st.addBookmark(id, player.currentPosition); hud = "Bookmarked ${fmt(player.currentPosition)}" }
+                        val arrowRotation by animateFloatAsState(
+                            targetValue = if (moreOpen) 180f else 0f,
+                            animationSpec = tween(300, easing = ease),
+                            label = "moreArrow"
+                        )
+                        IconButton(onClick = { moreOpen = !moreOpen }) {
+                            Icon(
+                                Icons.Default.ChevronRight, contentDescription = "More",
+                                tint = Color.White, modifier = Modifier.rotate(arrowRotation)
+                            )
                         }
-                        ToolButton(Icons.Default.Bookmarks, "Bookmarks") { dialog = "bm" }
-                        ToolButton(Icons.Default.PhotoCamera, "Screenshot") { act.screenshot() }
-                        ToolButton(Icons.Default.PictureInPictureAlt, "Picture-in-Picture") { act.enterPip() }
-                        ToolButton(Icons.Default.AspectRatio, "Aspect ratio") {
-                            resizeIdx = (resizeIdx + 1) % resizeModes.size
-                            hud = resizeModes[resizeIdx].second
-                        }
-                        ToolButton(Icons.Default.Memory, "Decoder") { dialog = "decoder" }
                     }
                     // seek bar
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -320,35 +394,48 @@ fun PlayerScreen(act: PlayerActivity) {
                         )
                         Text(fmt(duration), color = Color.White, style = MaterialTheme.typography.labelMedium)
                     }
-                    // transport row
+                    // bottom row: lock | prev, play/pause, next | zoom, PiP
                     Row(
                         Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = { locked = true; showControls = false }) {
                             Icon(Icons.Default.LockOpen, contentDescription = "Lock", tint = Color.White)
                         }
-                        IconButton(onClick = { player.seekToPreviousMediaItem() }) {
-                            Icon(Icons.Default.SkipPrevious, contentDescription = "Previous", tint = Color.White)
+                        Row(
+                            Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(onClick = { player.seekToPreviousMediaItem() }) {
+                                Icon(Icons.Default.SkipPrevious, contentDescription = "Previous", tint = Color.White)
+                            }
+                            FilledIconButton(
+                                onClick = { if (isPlaying) player.pause() else player.play() },
+                                modifier = Modifier.padding(horizontal = 16.dp).size(56.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = Color(0xFF00C853), contentColor = Color.White
+                                )
+                            ) {
+                                Crossfade(targetState = isPlaying, animationSpec = tween(200), label = "playpause") { playing ->
+                                    Icon(
+                                        if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = "Play/Pause", modifier = Modifier.size(34.dp)
+                                    )
+                                }
+                            }
+                            IconButton(onClick = { player.seekToNextMediaItem() }) {
+                                Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White)
+                            }
                         }
-                        if (!isPlaying) IconButton(onClick = { stepFrame(-1) }) {
-                            Icon(Icons.Default.NavigateBefore, contentDescription = "Previous frame", tint = Color.White)
-                        }
-                        IconButton(onClick = { seekBy(-10_000) }) {
-                            Icon(Icons.Default.Replay10, contentDescription = "-10s", tint = Color.White)
-                        }
-                        FilledIconButton(onClick = { if (isPlaying) player.pause() else player.play() }) {
-                            Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = "Play/Pause")
-                        }
-                        IconButton(onClick = { seekBy(10_000) }) {
-                            Icon(Icons.Default.Forward10, contentDescription = "+10s", tint = Color.White)
-                        }
-                        if (!isPlaying) IconButton(onClick = { stepFrame(1) }) {
-                            Icon(Icons.Default.NavigateNext, contentDescription = "Next frame", tint = Color.White)
-                        }
-                        IconButton(onClick = { player.seekToNextMediaItem() }) {
-                            Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White)
+                        Row {
+                            IconButton(onClick = {
+                                resizeIdx = (resizeIdx + 1) % resizeModes.size
+                                hud = resizeModes[resizeIdx].second
+                            }) { Icon(Icons.Default.AspectRatio, contentDescription = "Zoom / aspect ratio", tint = Color.White) }
+                            IconButton(onClick = { act.enterPip() }) {
+                                Icon(Icons.Default.PictureInPictureAlt, contentDescription = "Picture-in-Picture", tint = Color.White)
+                            }
                         }
                     }
                 }
