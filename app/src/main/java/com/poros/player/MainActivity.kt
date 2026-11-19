@@ -64,9 +64,10 @@ fun App() {
 
     var videos by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
-    LaunchedEffect(granted) {
+    var reloadTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(granted, reloadTick) {
         if (granted) {
-            loading = true
+            if (videos.isEmpty()) loading = true
             videos = withContext(Dispatchers.IO) { loadVideos(ctx) }
             loading = false
         }
@@ -82,13 +83,34 @@ fun App() {
     var query by remember { mutableStateOf("") }
     var vaultUnlocked by remember { mutableStateOf(false) }
 
+    val sel = remember { SelState() }
+    val ops = rememberFileOps { sel.clear(); reloadTick++ }
+    var deleteItems by remember { mutableStateOf<List<VideoItem>?>(null) }
+    var renameItem by remember { mutableStateOf<VideoItem?>(null) }
+    var moveItems by remember { mutableStateOf<List<VideoItem>?>(null) }
+    var copyItems by remember { mutableStateOf<List<VideoItem>?>(null) }
+    var newFolderDialog by remember { mutableStateOf(false) }
+    val act = remember {
+        Actions(
+            sel = sel,
+            share = { ops.share(it) },
+            delete = { deleteItems = it },
+            rename = { renameItem = it },
+            move = { moveItems = it },
+            copy = { copyItems = it }
+        )
+    }
+
     LaunchedEffect(nav) {
         if (nav != 3) vaultUnlocked = false
         folder = null; playlist = null
+        sel.clear()
     }
+    LaunchedEffect(folder, playlist) { sel.clear() }
 
-    BackHandler(showAbout || folder != null || playlist != null || searching) {
+    BackHandler(showAbout || folder != null || playlist != null || searching || sel.active) {
         when {
+            sel.active -> sel.clear()
             showAbout -> showAbout = false
             searching -> { searching = false; query = "" }
             folder != null -> folder = null
@@ -107,7 +129,19 @@ fun App() {
     val titles = listOf("Videos", "Folders", "Playlists", "Private Vault", "Settings")
     Scaffold(
         topBar = {
-            TopAppBar(
+            if (sel.active) {
+                val picked = videos.filter { it.key in sel.keys }
+                SelectionBar(
+                    count = sel.keys.size,
+                    onClose = { sel.clear() },
+                    onSelectAll = { if (sel.allSelected) sel.clear() else sel.selectAll() },
+                    onShare = { ops.share(picked) },
+                    onDelete = { deleteItems = picked },
+                    onRename = { picked.firstOrNull()?.let { renameItem = it } },
+                    onMove = { moveItems = picked },
+                    onCopy = { copyItems = picked }
+                )
+            } else TopAppBar(
                 title = {
                     if (searching && nav == 0) {
                         OutlinedTextField(
@@ -156,14 +190,54 @@ fun App() {
                     }
                 }
                 loading -> Center { CircularProgressIndicator() }
-                nav == 0 -> VideosScreen(visible, st, loader, query)
-                nav == 1 -> FoldersScreen(visible, st, loader, folder) { folder = it }
-                nav == 2 -> PlaylistsScreen(videos, st, loader, playlist) { playlist = it }
-                nav == 3 -> VaultScreen(videos, st, loader, vaultUnlocked) { vaultUnlocked = true }
+                nav == 0 -> VideosScreen(visible, st, loader, query, act)
+                nav == 1 -> FoldersScreen(visible, st, loader, folder, act, { newFolderDialog = true }) { folder = it }
+                nav == 2 -> PlaylistsScreen(videos, st, loader, playlist, act) { playlist = it }
+                nav == 3 -> VaultScreen(videos, st, loader, vaultUnlocked, act) { vaultUnlocked = true }
                 else -> SettingsScreen(st) { showAbout = true }
             }
         }
     }
+
+    deleteItems?.let { l ->
+        DeleteConfirmDialog(
+            count = l.size,
+            onConfirm = { deleteItems = null; ops.delete(l) },
+            onDismiss = { deleteItems = null }
+        )
+    }
+    renameItem?.let { v ->
+        RenameDialog(
+            item = v,
+            onConfirm = { renameItem = null; ops.rename(v, it) },
+            onDismiss = { renameItem = null }
+        )
+    }
+    moveItems?.let { l ->
+        FolderPickerDialog(
+            title = "Move to folder",
+            targets = folderTargets(visible, st),
+            onPick = { moveItems = null; ops.move(l, it) },
+            onCreate = { name -> ops.newFolder(st, name)?.let { moveItems = null; ops.move(l, it) } },
+            onDismiss = { moveItems = null }
+        )
+    }
+    copyItems?.let { l ->
+        FolderPickerDialog(
+            title = "Copy to folder",
+            targets = folderTargets(visible, st),
+            onPick = { copyItems = null; ops.copy(l, it) },
+            onCreate = { name -> ops.newFolder(st, name)?.let { copyItems = null; ops.copy(l, it) } },
+            onDismiss = { copyItems = null }
+        )
+    }
+    if (newFolderDialog) NewFolderDialog(
+        onCreate = { name ->
+            if (ops.newFolder(st, name) != null) newFolderDialog = false
+        },
+        onDismiss = { newFolderDialog = false }
+    )
+    ops.busy?.let { BusyDialog(it) }
 
     if (showStream) StreamDialog(
         onDismiss = { showStream = false },

@@ -61,6 +61,13 @@ class Settings private constructor(ctx: Context) {
         set("hidden", JSONArray(s.toList()).toString())
     }
 
+    // ---- user-created folders ----
+    fun createdFolders(): List<String> = arr("folders").strings()
+    fun addCreatedFolder(name: String) {
+        val l = createdFolders()
+        if (name !in l) set("folders", JSONArray(l + name).toString())
+    }
+
     // ---- history / resume ----
     fun progress(uri: String): Pair<Long, Long>? {
         val o = obj("hist").optJSONObject(uri) ?: return null

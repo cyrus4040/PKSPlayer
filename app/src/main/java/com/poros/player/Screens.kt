@@ -1,8 +1,11 @@
 package com.poros.player
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -36,36 +39,58 @@ fun Center(content: @Composable () -> Unit) {
 // ---------------------------------------------------------------- video rows
 
 @Composable
-fun VideoList(list: List<VideoItem>, st: Settings, loader: ImageLoader, inVault: Boolean = false) {
+fun VideoList(list: List<VideoItem>, st: Settings, loader: ImageLoader, act: Actions, inVault: Boolean = false) {
     val ctx = LocalContext.current
+    SideEffect { act.sel.visible = list }
     if (list.isEmpty()) {
         Center { Text("No videos here", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         return
     }
     LazyColumn(Modifier.fillMaxSize()) {
         itemsIndexed(list, key = { _, v -> v.key }) { index, v ->
-            VideoRow(v, st, loader, inVault) { openPlayer(ctx, list, index) }
+            VideoRow(v, st, loader, act, inVault) { openPlayer(ctx, list, index) }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun VideoRow(v: VideoItem, st: Settings, loader: ImageLoader, inVault: Boolean, onPlay: () -> Unit) {
+fun VideoRow(v: VideoItem, st: Settings, loader: ImageLoader, act: Actions, inVault: Boolean, onPlay: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     var addDialog by remember { mutableStateOf(false) }
+    val sel = act.sel
+    val selected by remember(v.key) { derivedStateOf { v.key in sel.keys } }
+    val selecting by remember { derivedStateOf { sel.active } }
+    val primary = MaterialTheme.colorScheme.primary
+    val rowBg by animateColorAsState(
+        if (selected) primary.copy(alpha = 0.22f) else Color.Transparent, label = "rowBg"
+    )
     val fav = v.key in st.favorites()
     val prog = st.progress(v.key)
     val frac = if (prog != null && prog.second > 0) (prog.first.toFloat() / prog.second).coerceIn(0f, 1f) else 0f
 
     Row(
-        Modifier.fillMaxWidth().clickable { onPlay() }.padding(horizontal = 12.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth()
+            .background(rowBg)
+            .combinedClickable(
+                onClick = { if (selecting) sel.toggle(v.key) else onPlay() },
+                onLongClick = { sel.toggle(v.key) }
+            )
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(Modifier.size(width = 120.dp, height = 72.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF222222))) {
+        Box(
+            Modifier.size(width = 120.dp, height = 72.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFF222222))
+                .border(if (selected) 2.5.dp else 0.dp, primary, RoundedCornerShape(10.dp))
+                .clickable { sel.toggle(v.key) }
+        ) {
             AsyncImage(
                 model = v.uri, imageLoader = loader, contentDescription = null,
                 contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()
             )
+            if (selected) Box(Modifier.fillMaxSize().background(primary.copy(alpha = 0.30f)))
             Text(
                 fmt(v.durationMs), color = Color.White, style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp)
@@ -73,24 +98,64 @@ fun VideoRow(v: VideoItem, st: Settings, loader: ImageLoader, inVault: Boolean, 
             )
             if (frac > 0.01f) {
                 Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color(0x55FFFFFF))) {
-                    Box(Modifier.fillMaxWidth(frac).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
+                    Box(Modifier.fillMaxWidth(frac).fillMaxHeight().background(primary))
+                }
+            }
+            if (selecting) {
+                Box(
+                    Modifier.align(Alignment.TopStart).padding(5.dp).size(22.dp)
+                        .clip(CircleShape)
+                        .background(if (selected) primary else Color(0x66000000))
+                        .border(1.5.dp, if (selected) primary else Color.White, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (selected) Icon(
+                        Icons.Default.Check, contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(16.dp)
+                    )
                 }
             }
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(v.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+            Text(
+                v.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium,
+                color = if (selected) primary else Color.Unspecified
+            )
             Text(
                 "${fmtSize(v.sizeBytes)} • ${v.folder}", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis
             )
         }
-        if (fav) Icon(Icons.Default.Favorite, contentDescription = null, tint = MaterialTheme.colorScheme.primary,
+        if (fav) Icon(Icons.Default.Favorite, contentDescription = null, tint = primary,
             modifier = Modifier.size(18.dp))
         Box {
             IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More") }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                DropdownMenuItem(text = { Text("Play") }, onClick = { menu = false; onPlay() })
+                DropdownMenuItem(
+                    text = { Text("Play") },
+                    leadingIcon = { Icon(Icons.Default.PlayArrow, contentDescription = null) },
+                    onClick = { menu = false; onPlay() })
+                DropdownMenuItem(
+                    text = { Text(if (selected) "Deselect" else "Select") },
+                    leadingIcon = { Icon(Icons.Default.CheckCircle, contentDescription = null) },
+                    onClick = { menu = false; sel.toggle(v.key) })
+                DropdownMenuItem(
+                    text = { Text("Share") },
+                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                    onClick = { menu = false; act.share(listOf(v)) })
+                DropdownMenuItem(
+                    text = { Text("Rename") },
+                    leadingIcon = { Icon(Icons.Default.DriveFileRenameOutline, contentDescription = null) },
+                    onClick = { menu = false; act.rename(v) })
+                DropdownMenuItem(
+                    text = { Text("Move to folder") },
+                    leadingIcon = { Icon(Icons.Default.DriveFileMove, contentDescription = null) },
+                    onClick = { menu = false; act.move(listOf(v)) })
+                DropdownMenuItem(
+                    text = { Text("Copy to folder") },
+                    leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
+                    onClick = { menu = false; act.copy(listOf(v)) })
                 DropdownMenuItem(
                     text = { Text(if (fav) "Remove from favorites" else "Add to favorites") },
                     onClick = { menu = false; st.toggleFavorite(v.key) })
@@ -98,6 +163,11 @@ fun VideoRow(v: VideoItem, st: Settings, loader: ImageLoader, inVault: Boolean, 
                 DropdownMenuItem(
                     text = { Text(if (inVault) "Remove from vault" else "Hide in Private Vault") },
                     onClick = { menu = false; st.setHidden(v.key, !inVault) })
+                DropdownMenuItem(
+                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error) },
+                    onClick = { menu = false; act.delete(listOf(v)) })
             }
         }
     }
@@ -132,7 +202,7 @@ fun AddToPlaylistDialog(st: Settings, key: String, onDismiss: () -> Unit) {
 // ---------------------------------------------------------------- screens
 
 @Composable
-fun VideosScreen(videos: List<VideoItem>, st: Settings, loader: ImageLoader, query: String) {
+fun VideosScreen(videos: List<VideoItem>, st: Settings, loader: ImageLoader, query: String, act: Actions) {
     var chip by remember { mutableIntStateOf(0) }
     val chips = listOf("All", "Recent", "Favorites", "Continue", "Long (1h+)", "Large (500MB+)")
     val favs = st.favorites()
@@ -159,27 +229,45 @@ fun VideosScreen(videos: List<VideoItem>, st: Settings, loader: ImageLoader, que
                     modifier = Modifier.padding(end = 8.dp))
             }
         }
-        VideoList(filtered, st, loader)
+        VideoList(filtered, st, loader, act)
     }
 }
 
 @Composable
-fun FoldersScreen(videos: List<VideoItem>, st: Settings, loader: ImageLoader, folder: String?, onOpen: (String) -> Unit) {
+fun FoldersScreen(
+    videos: List<VideoItem>, st: Settings, loader: ImageLoader, folder: String?,
+    act: Actions, onNewFolder: () -> Unit, onOpen: (String) -> Unit
+) {
     if (folder != null) {
-        VideoList(videos.filter { it.folder == folder }, st, loader)
+        VideoList(videos.filter { it.folder == folder }, st, loader, act)
         return
     }
-    val groups = remember(videos) { videos.groupBy { it.folder }.toList().sortedBy { it.first.lowercase() } }
-    if (groups.isEmpty()) { Center { Text("No folders found") }; return }
-    LazyColumn(Modifier.fillMaxSize()) {
-        itemsIndexed(groups) { _, (name, items) ->
-            Row(Modifier.fillMaxWidth().clickable { onOpen(name) }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(16.dp))
-                Column {
-                    Text(name, fontWeight = FontWeight.Medium)
-                    Text("${items.size} videos • ${fmtSize(items.sumOf { it.sizeBytes })}",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val created = st.createdFolders()
+    val groups = remember(videos, created) {
+        val m = videos.groupBy { it.folder }.toMutableMap()
+        created.forEach { if (!m.containsKey(it)) m[it] = emptyList() }
+        m.toList().sortedBy { it.first.lowercase() }
+    }
+    Column(Modifier.fillMaxSize()) {
+        TextButton(onClick = onNewFolder, modifier = Modifier.padding(8.dp)) {
+            Icon(Icons.Default.CreateNewFolder, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text("Create folder")
+        }
+        if (groups.isEmpty()) {
+            Center { Text("No folders found") }
+        } else {
+            LazyColumn(Modifier.fillMaxSize()) {
+                itemsIndexed(groups) { _, (name, items) ->
+                    Row(Modifier.fillMaxWidth().clickable { onOpen(name) }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(16.dp))
+                        Column {
+                            Text(name, fontWeight = FontWeight.Medium)
+                            Text("${items.size} videos • ${fmtSize(items.sumOf { it.sizeBytes })}",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                 }
             }
         }
@@ -187,7 +275,7 @@ fun FoldersScreen(videos: List<VideoItem>, st: Settings, loader: ImageLoader, fo
 }
 
 @Composable
-fun PlaylistsScreen(videos: List<VideoItem>, st: Settings, loader: ImageLoader, open: String?, onOpen: (String?) -> Unit) {
+fun PlaylistsScreen(videos: List<VideoItem>, st: Settings, loader: ImageLoader, open: String?, act: Actions, onOpen: (String?) -> Unit) {
     val ctx = LocalContext.current
     val pls = st.playlists()
     var creating by remember { mutableStateOf(false) }
@@ -201,7 +289,7 @@ fun PlaylistsScreen(videos: List<VideoItem>, st: Settings, loader: ImageLoader, 
                 Spacer(Modifier.width(8.dp))
                 OutlinedButton(onClick = { st.deletePlaylist(open); onOpen(null) }) { Text("Delete playlist") }
             }
-            VideoList(items, st, loader)
+            VideoList(items, st, loader, act)
         }
         return
     }
@@ -238,7 +326,7 @@ fun PlaylistsScreen(videos: List<VideoItem>, st: Settings, loader: ImageLoader, 
 }
 
 @Composable
-fun VaultScreen(videos: List<VideoItem>, st: Settings, loader: ImageLoader, unlocked: Boolean, onUnlocked: () -> Unit) {
+fun VaultScreen(videos: List<VideoItem>, st: Settings, loader: ImageLoader, unlocked: Boolean, act: Actions, onUnlocked: () -> Unit) {
     var pinSet by remember { mutableStateOf(st.hasPin) }
     when {
         !pinSet -> SetPinPanel("Set a PIN for Private Vault", onDone = { st.setPin(it); pinSet = true })
@@ -252,7 +340,7 @@ fun VaultScreen(videos: List<VideoItem>, st: Settings, loader: ImageLoader, unlo
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(12.dp)
                 )
-                VideoList(list, st, loader, inVault = true)
+                VideoList(list, st, loader, act, inVault = true)
             }
         }
     }

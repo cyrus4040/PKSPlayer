@@ -13,7 +13,9 @@ data class VideoItem(
     val title: String,
     val durationMs: Long,
     val sizeBytes: Long,
-    val folder: String
+    val folder: String,
+    val path: String = "",
+    val relPath: String = ""
 ) {
     val key: String get() = uri.toString()
 }
@@ -23,13 +25,17 @@ fun loadVideos(context: Context): List<VideoItem> {
         MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
     else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
 
-    val projection = arrayOf(
+    @Suppress("DEPRECATION")
+    val projection = mutableListOf(
         MediaStore.Video.Media._ID,
         MediaStore.Video.Media.DISPLAY_NAME,
         MediaStore.Video.Media.DURATION,
         MediaStore.Video.Media.SIZE,
-        MediaStore.Video.Media.BUCKET_DISPLAY_NAME
-    )
+        MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
+        MediaStore.Video.Media.DATA
+    ).apply {
+        if (Build.VERSION.SDK_INT >= 29) add(MediaStore.MediaColumns.RELATIVE_PATH)
+    }.toTypedArray()
     val out = mutableListOf<VideoItem>()
     context.contentResolver.query(
         collection, projection, null, null,
@@ -40,13 +46,18 @@ fun loadVideos(context: Context): List<VideoItem> {
         val durCol = c.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
         val sizeCol = c.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
         val bucketCol = c.getColumnIndexOrThrow(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
+        @Suppress("DEPRECATION")
+        val dataCol = c.getColumnIndex(MediaStore.Video.Media.DATA)
+        val relCol = if (Build.VERSION.SDK_INT >= 29) c.getColumnIndex(MediaStore.MediaColumns.RELATIVE_PATH) else -1
         while (c.moveToNext()) {
             out += VideoItem(
                 uri = ContentUris.withAppendedId(collection, c.getLong(idCol)),
                 title = c.getString(nameCol) ?: "Video",
                 durationMs = c.getLong(durCol),
                 sizeBytes = c.getLong(sizeCol),
-                folder = c.getString(bucketCol) ?: "Unknown"
+                folder = c.getString(bucketCol) ?: "Unknown",
+                path = if (dataCol >= 0) c.getString(dataCol) ?: "" else "",
+                relPath = if (relCol >= 0) c.getString(relCol) ?: "" else ""
             )
         }
     }
