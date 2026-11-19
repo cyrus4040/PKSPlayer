@@ -177,11 +177,11 @@ fun AudioFxDialog(fx: AudioFx, onDismiss: () -> Unit) {
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text("Audio boost: ${fx.boost}%", style = MaterialTheme.typography.labelLarge)
-                Slider(value = fx.boost.toFloat(), onValueChange = { fx.setBoost(it.toInt()) }, valueRange = 0f..100f)
+                Slider(value = fx.boost.toFloat(), onValueChange = { fx.updateBoost(it.toInt()) }, valueRange = 0f..100f)
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Equalizer", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                    Switch(checked = fx.eqOn, onCheckedChange = { fx.setEqOn(it) }, enabled = fx.available)
+                    Switch(checked = fx.eqOn, onCheckedChange = { fx.updateEqOn(it) }, enabled = fx.available)
                 }
                 if (!fx.available) Text("Equalizer not available on this device/session",
                     style = MaterialTheme.typography.bodySmall)

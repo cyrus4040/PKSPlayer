@@ -62,8 +62,8 @@ class AudioFx(private val st: Settings) {
         } catch (e: Throwable) { }
     }
 
-    fun setBoost(v: Int) { boost = v; st.set("boost", v); push() }
-    fun setEqOn(on: Boolean) { eqOn = on; st.set("eqon", on); push() }
+    fun updateBoost(v: Int) { boost = v; st.set("boost", v); push() }
+    fun updateEqOn(on: Boolean) { eqOn = on; st.set("eqon", on); push() }
     fun setLevel(i: Int, v: Int) {
         if (i in levels.indices) { levels[i] = v; st.set("eq", levels.joinToString(",")); push() }
     }
