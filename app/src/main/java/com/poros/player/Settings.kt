@@ -123,6 +123,41 @@ class Settings private constructor(ctx: Context) {
         o.put(uri, JSONArray(bookmarks(uri).filter { it != pos })); set("bm", o.toString())
     }
 
+    // ---- custom video presets ----
+    fun fxCustoms(): List<Pair<String, FxState>> {
+        val a = arr("fxcustom")
+        return (0 until a.length()).mapNotNull { i ->
+            val o = a.optJSONObject(i) ?: return@mapNotNull null
+            val name = o.optString("n")
+            if (name.isBlank()) return@mapNotNull null
+            name to FxState(
+                preset = FxPreset.fromId(o.optString("p")),
+                intensity = o.optDouble("i", 1.0).toFloat(),
+                brightness = o.optDouble("b", 0.0).toFloat(),
+                contrast = o.optDouble("c", 0.0).toFloat(),
+                saturation = o.optDouble("s", 0.0).toFloat(),
+                warmth = o.optDouble("w", 0.0).toFloat()
+            )
+        }
+    }
+    fun saveFxCustom(name: String, f: FxState) {
+        val list = fxCustoms().filter { it.first != name } + (name to f)
+        writeFx(list)
+    }
+    fun deleteFxCustom(name: String) = writeFx(fxCustoms().filter { it.first != name })
+    private fun writeFx(list: List<Pair<String, FxState>>) {
+        val a = JSONArray()
+        list.forEach { (n, f) ->
+            a.put(
+                JSONObject().put("n", n).put("p", f.preset?.id ?: "")
+                    .put("i", f.intensity.toDouble()).put("b", f.brightness.toDouble())
+                    .put("c", f.contrast.toDouble()).put("s", f.saturation.toDouble())
+                    .put("w", f.warmth.toDouble())
+            )
+        }
+        set("fxcustom", a.toString())
+    }
+
     companion object {
         @Volatile private var inst: Settings? = null
         fun get(ctx: Context): Settings =

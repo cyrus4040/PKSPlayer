@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlin.math.log10
 
 /** Audio boost (LoudnessEnhancer) + Equalizer, attached to the ExoPlayer audio session. */
 class AudioFx(private val st: Settings) {
@@ -14,6 +15,9 @@ class AudioFx(private val st: Settings) {
     private var eq: Equalizer? = null
 
     var boost by mutableIntStateOf(st.int("boost", 0))
+        private set
+    /** Volume above the system maximum, 100..200 %. Session only (resets to 100 on each launch). */
+    var volBoost by mutableIntStateOf(100)
         private set
     var eqOn by mutableStateOf(st.bool("eqon", false))
         private set
@@ -48,11 +52,18 @@ class AudioFx(private val st: Settings) {
         push()
     }
 
-    private fun push() {
+    private fun push() { pushGain(); pushEq() }
+
+    private fun pushGain() {
         try {
-            enhancer?.setEnabled(boost > 0)
-            enhancer?.setTargetGain(boost * 15)
+            val extra = if (volBoost > 100) (2000.0 * log10(volBoost / 100.0)).toInt() else 0   // 200% = +6 dB
+            val gain = boost * 15 + extra
+            enhancer?.setEnabled(gain > 0)
+            enhancer?.setTargetGain(gain)
         } catch (e: Throwable) { }
+    }
+
+    private fun pushEq() {
         try {
             val q = eq
             if (q != null) {
@@ -61,6 +72,8 @@ class AudioFx(private val st: Settings) {
             }
         } catch (e: Throwable) { }
     }
+
+    fun updateVolBoost(pct: Int) { volBoost = pct.coerceIn(100, 200); pushGain() }
 
     fun updateBoost(v: Int) { boost = v; st.set("boost", v); push() }
     fun updateEqOn(on: Boolean) { eqOn = on; st.set("eqon", on); push() }

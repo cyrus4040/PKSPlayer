@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import android.util.TypedValue
+import android.view.LayoutInflater
+import android.view.View
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -71,6 +73,9 @@ fun PlayerScreen(act: PlayerActivity) {
     var sleepMinutes by remember { mutableIntStateOf(0) }
     var fastHold by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
+    var fxOpen by remember { mutableStateOf(false) }
+    var fx by remember { mutableStateOf(FxState()) }
+    var compare by remember { mutableStateOf(false) }
     var hudText by remember { mutableStateOf("") }
 
     val audio = remember { act.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -135,7 +140,7 @@ fun PlayerScreen(act: PlayerActivity) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
+                (LayoutInflater.from(ctx).inflate(R.layout.pk_player_view, null, false) as PlayerView).apply {
                     useController = false
                     this.player = player
                     act.playerView = this
@@ -143,6 +148,8 @@ fun PlayerScreen(act: PlayerActivity) {
             },
             update = { pv ->
                 pv.resizeMode = resizeModes[resizeIdx].first
+                // live preset preview: applied instantly to the video surface, playback is untouched
+                pv.videoSurfaceView?.let { v: View -> VideoFx.apply(v, if (compare) FxState() else fx) }
                 pv.subtitleView?.apply {
                     setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, st.float("subsize", 22f))
                     val c = SUB_COLORS[st.int("subcolor", 0).coerceIn(0, SUB_COLORS.lastIndex)]
@@ -201,8 +208,9 @@ fun PlayerScreen(act: PlayerActivity) {
                                     act.window.attributes = lp
                                     hud = "Brightness ${(bright * 100).roundToInt()}%"
                                 } else {
-                                    vol = (vol + d).coerceIn(0f, 1f)
-                                    audio.setStreamVolume(AudioManager.STREAM_MUSIC, (vol * maxVol).roundToInt(), 0)
+                                    vol = (vol + d * 1.4f).coerceIn(0f, 2f)          // 0..200 %
+                                    audio.setStreamVolume(AudioManager.STREAM_MUSIC, (vol.coerceAtMost(1f) * maxVol).roundToInt(), 0)
+                                    act.fx.updateVolBoost(if (vol > 1f) (vol * 100f).roundToInt() else 100)
                                     hud = "Volume ${(vol * 100).roundToInt()}%"
                                 }
                             }
@@ -284,6 +292,23 @@ fun PlayerScreen(act: PlayerActivity) {
                     }
                     Text(title, color = Color.White, maxLines = 1, modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.titleMedium)
+                    IconButton(onClick = { dialog = "audio" }) {
+                        Icon(Icons.Default.Audiotrack, contentDescription = "Audio track", tint = Color.White)
+                    }
+                    IconButton(onClick = { dialog = "sub" }) {
+                        Icon(Icons.Default.Subtitles, contentDescription = "Subtitles", tint = Color.White)
+                    }
+                    TextButton(onClick = { dialog = "decoder" }) {
+                        Text(listOf("HW", "HW+", "SW")[st.decoder.coerceIn(0, 2)], color = MaterialTheme.colorScheme.primary)
+                    }
+                    IconButton(
+                        onClick = { fxOpen = true; showControls = false },
+                        modifier = Modifier.size(52.dp)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f), RoundedCornerShape(50))
+                    ) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = "Presets",
+                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
+                    }
                     IconButton(onClick = {
                         landscape = !landscape
                         act.requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -330,40 +355,37 @@ fun PlayerScreen(act: PlayerActivity) {
                     // tools row: 4 icons + arrow, the arrow opens the rest
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Row(Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState())) {
-                            ToolButton(Icons.Default.Subtitles, "Subtitles") { dialog = "sub" }
-                            ToolButton(Icons.Default.Audiotrack, "Audio track") { dialog = "audio" }
                             ToolButton(
                                 Icons.Default.Speed, "Speed",
                                 tint = if (speed != 1f) MaterialTheme.colorScheme.primary else Color.White
                             ) { dialog = "speed" }
                             ToolButton(Icons.Default.Equalizer, "Equalizer & boost") { dialog = "fx" }
+                            ToolButton(
+                                Icons.Default.Repeat, "A-B repeat",
+                                tint = if (aPos != null) MaterialTheme.colorScheme.primary else Color.White
+                            ) {
+                                when {
+                                    aPos == null -> { aPos = player.currentPosition; hud = "A set" }
+                                    bPos == null -> { bPos = player.currentPosition; hud = "B set • looping" }
+                                    else -> { aPos = null; bPos = null; hud = "A-B off" }
+                                }
+                            }
+                            ToolButton(
+                                Icons.Default.Timer, "Sleep timer",
+                                tint = if (sleepMinutes > 0) MaterialTheme.colorScheme.primary else Color.White
+                            ) { dialog = "sleep" }
                             AnimatedVisibility(
                                 visible = moreOpen,
                                 enter = expandHorizontally(tween(300, easing = ease)) + fadeIn(tween(300)),
                                 exit = shrinkHorizontally(tween(250, easing = ease)) + fadeOut(tween(200))
                             ) {
                                 Row {
-                                    ToolButton(
-                                        Icons.Default.Repeat, "A-B repeat",
-                                        tint = if (aPos != null) MaterialTheme.colorScheme.primary else Color.White
-                                    ) {
-                                        when {
-                                            aPos == null -> { aPos = player.currentPosition; hud = "A set" }
-                                            bPos == null -> { bPos = player.currentPosition; hud = "B set • looping" }
-                                            else -> { aPos = null; bPos = null; hud = "A-B off" }
-                                        }
-                                    }
-                                    ToolButton(
-                                        Icons.Default.Timer, "Sleep timer",
-                                        tint = if (sleepMinutes > 0) MaterialTheme.colorScheme.primary else Color.White
-                                    ) { dialog = "sleep" }
                                     ToolButton(Icons.Default.BookmarkAdd, "Add bookmark") {
                                         val id = player.currentMediaItem?.mediaId
                                         if (id != null) { st.addBookmark(id, player.currentPosition); hud = "Bookmarked ${fmt(player.currentPosition)}" }
                                     }
                                     ToolButton(Icons.Default.Bookmarks, "Bookmarks") { dialog = "bm" }
                                     ToolButton(Icons.Default.PhotoCamera, "Screenshot") { act.screenshot() }
-                                    ToolButton(Icons.Default.Memory, "Decoder") { dialog = "decoder" }
                                     ToolButton(Icons.Default.NavigateBefore, "Previous frame") { stepFrame(-1) }
                                     ToolButton(Icons.Default.NavigateNext, "Next frame") { stepFrame(1) }
                                 }
@@ -439,6 +461,23 @@ fun PlayerScreen(act: PlayerActivity) {
                         }
                     }
                 }
+            }
+
+            // ---------------- presets panel ----------------
+            AnimatedVisibility(
+                visible = fxOpen,
+                modifier = Modifier.align(Alignment.CenterEnd),
+                enter = fadeIn(tween(200)) + slideInHorizontally(tween(300, easing = ease)) { it },
+                exit = fadeOut(tween(200)) + slideOutHorizontally(tween(250, easing = ease)) { it }
+            ) {
+                PresetPanel(
+                    st = st,
+                    state = fx,
+                    onChange = { fx = it },
+                    onCompare = { compare = it },
+                    onClose = { fxOpen = false; compare = false },
+                    modifier = Modifier.fillMaxHeight().widthIn(max = 340.dp).fillMaxWidth(0.9f)
+                )
             }
 
             // ---------------- dialogs ----------------

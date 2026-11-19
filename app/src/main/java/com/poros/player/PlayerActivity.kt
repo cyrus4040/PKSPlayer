@@ -18,6 +18,7 @@ import android.provider.OpenableColumns
 import android.util.Rational
 import android.view.PixelCopy
 import android.view.SurfaceView
+import android.view.TextureView
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -261,6 +262,12 @@ class PlayerActivity : ComponentActivity() {
     // ---------------------------------------------------------------- screenshot
 
     fun screenshot() {
+        val tv = playerView?.videoSurfaceView as? TextureView
+        if (tv != null) {
+            val frame = tv.bitmap
+            if (frame != null) saveBitmap(frame) else toast("Screenshot not available")
+            return
+        }
         val sv = playerView?.videoSurfaceView as? SurfaceView
         if (Build.VERSION.SDK_INT < 26 || sv == null || sv.width == 0 || sv.height == 0) {
             toast("Screenshot not available"); return
