@@ -6,11 +6,17 @@ import android.media.AudioManager
 import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -28,11 +34,13 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
@@ -67,6 +75,10 @@ fun PlayerScreen(act: PlayerActivity) {
     var seeking by remember { mutableStateOf(false) }
     var seekValue by remember { mutableFloatStateOf(0f) }
     var landscape by remember { mutableStateOf(true) }
+    var autoLandscape by remember { mutableStateOf<Boolean?>(null) }
+    var zoom by remember { mutableFloatStateOf(1f) }
+    var panX by remember { mutableFloatStateOf(0f) }
+    var panY by remember { mutableFloatStateOf(0f) }
     var dialog by remember { mutableStateOf<String?>(null) }
     var aPos by remember { mutableStateOf<Long?>(null) }
     var bPos by remember { mutableStateOf<Long?>(null) }
@@ -87,12 +99,31 @@ fun PlayerScreen(act: PlayerActivity) {
         if (uri != null) act.loadSubtitle(uri, act.displayName(uri), 0L)
     }
 
+    // Portrait video -> portrait player, landscape video -> landscape player (re-applied only when it flips)
+    fun autoRotate(vs: VideoSize) {
+        if (vs.width <= 0 || vs.height <= 0) return
+        var w = vs.width * vs.pixelWidthHeightRatio
+        var h = vs.height.toFloat()
+        if (vs.unappliedRotationDegrees == 90 || vs.unappliedRotationDegrees == 270) { val t = w; w = h; h = t }
+        val land = w >= h
+        if (autoLandscape == land) return
+        autoLandscape = land
+        landscape = land
+        act.requestedOrientation = if (land) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        else ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+    }
+
     DisposableEffect(player) {
         val l = object : Player.Listener {
             override fun onIsPlayingChanged(p: Boolean) { isPlaying = p }
             override fun onMediaMetadataChanged(m: MediaMetadata) { title = m.title?.toString() ?: "" }
+            override fun onVideoSizeChanged(videoSize: VideoSize) { autoRotate(videoSize) }
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                zoom = 1f; panX = 0f; panY = 0f
+            }
         }
         player.addListener(l)
+        autoRotate(player.videoSize)
         title = player.mediaMetadata.title?.toString() ?: ""
         onDispose { player.removeListener(l) }
     }
@@ -142,6 +173,9 @@ fun PlayerScreen(act: PlayerActivity) {
             factory = { ctx ->
                 (LayoutInflater.from(ctx).inflate(R.layout.pk_player_view, null, false) as PlayerView).apply {
                     useController = false
+                    // let a pinch-zoomed video draw outside the (letter-boxed) video frame
+                    clipChildren = false
+                    (findViewById<View>(androidx.media3.ui.R.id.exo_content_frame) as? ViewGroup)?.clipChildren = false
                     this.player = player
                     act.playerView = this
                 }
@@ -149,7 +183,11 @@ fun PlayerScreen(act: PlayerActivity) {
             update = { pv ->
                 pv.resizeMode = resizeModes[resizeIdx].first
                 // live preset preview: applied instantly to the video surface, playback is untouched
-                pv.videoSurfaceView?.let { v: View -> VideoFx.apply(v, if (compare) FxState() else fx) }
+                pv.videoSurfaceView?.let { v: View ->
+                    VideoFx.apply(v, if (compare) FxState() else fx)
+                    v.scaleX = zoom; v.scaleY = zoom
+                    v.translationX = panX; v.translationY = panY
+                }
                 pv.subtitleView?.apply {
                     setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, st.float("subsize", 22f))
                     val c = SUB_COLORS[st.int("subcolor", 0).coerceIn(0, SUB_COLORS.lastIndex)]
@@ -171,6 +209,36 @@ fun PlayerScreen(act: PlayerActivity) {
             // ---------------- gesture layer ----------------
             Box(
                 Modifier.fillMaxSize()
+                    .pointerInput(locked) {
+                        if (locked) return@pointerInput
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                            var multi = false
+                            do {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                val pressed = event.changes.count { it.pressed }
+                                if (pressed >= 2) multi = true
+                                if (multi) {
+                                    if (pressed >= 2) {
+                                        val z = event.calculateZoom()
+                                        val pan = event.calculatePan()
+                                        val c = event.calculateCentroid(useCurrent = true)
+                                        val newZoom = (zoom * z).coerceIn(1f, 4f)
+                                        val f = newZoom / zoom
+                                        val cx = size.width / 2f
+                                        val cy = size.height / 2f
+                                        val mx = size.width * (newZoom - 1f) / 2f
+                                        val my = size.height * (newZoom - 1f) / 2f
+                                        panX = ((c.x - cx) * (1f - f) + panX * f + pan.x).coerceIn(-mx, mx)
+                                        panY = ((c.y - cy) * (1f - f) + panY * f + pan.y).coerceIn(-my, my)
+                                        zoom = newZoom
+                                        hud = "Zoom ${(zoom * 100).roundToInt()}%"
+                                    }
+                                    event.changes.forEach { it.consume() }   // keep tap / volume / seek gestures out
+                                }
+                            } while (event.changes.any { it.pressed })
+                        }
+                    }
                     .pointerInput(locked) {
                         detectTapGestures(
                             onPress = {
@@ -301,19 +369,10 @@ fun PlayerScreen(act: PlayerActivity) {
                     TextButton(onClick = { dialog = "decoder" }) {
                         Text(listOf("HW", "HW+", "SW")[st.decoder.coerceIn(0, 2)], color = MaterialTheme.colorScheme.primary)
                     }
-                    IconButton(
-                        onClick = { fxOpen = true; showControls = false },
-                        modifier = Modifier.size(52.dp)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f), RoundedCornerShape(50))
-                    ) {
+                    IconButton(onClick = { fxOpen = true; showControls = false }) {
                         Icon(Icons.Default.AutoAwesome, contentDescription = "Presets",
-                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
+                            tint = MaterialTheme.colorScheme.primary)
                     }
-                    IconButton(onClick = {
-                        landscape = !landscape
-                        act.requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                        else ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-                    }) { Icon(Icons.Default.ScreenRotation, contentDescription = "Rotate", tint = Color.White) }
                 }
             }
 
@@ -380,6 +439,12 @@ fun PlayerScreen(act: PlayerActivity) {
                                 exit = shrinkHorizontally(tween(250, easing = ease)) + fadeOut(tween(200))
                             ) {
                                 Row {
+                                    ToolButton(Icons.Default.ScreenRotation, "Rotate") {
+                                        landscape = !landscape
+                                        autoLandscape = landscape
+                                        act.requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                        else ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                                    }
                                     ToolButton(Icons.Default.BookmarkAdd, "Add bookmark") {
                                         val id = player.currentMediaItem?.mediaId
                                         if (id != null) { st.addBookmark(id, player.currentPosition); hud = "Bookmarked ${fmt(player.currentPosition)}" }
@@ -453,6 +518,7 @@ fun PlayerScreen(act: PlayerActivity) {
                         Row {
                             IconButton(onClick = {
                                 resizeIdx = (resizeIdx + 1) % resizeModes.size
+                                zoom = 1f; panX = 0f; panY = 0f
                                 hud = resizeModes[resizeIdx].second
                             }) { Icon(Icons.Default.AspectRatio, contentDescription = "Zoom / aspect ratio", tint = Color.White) }
                             IconButton(onClick = { act.enterPip() }) {
