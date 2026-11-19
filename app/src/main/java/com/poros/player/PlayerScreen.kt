@@ -36,7 +36,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -74,6 +76,7 @@ fun PlayerScreen(act: PlayerActivity) {
     var hud by remember { mutableStateOf<String?>(null) }
     var seeking by remember { mutableStateOf(false) }
     var seekValue by remember { mutableFloatStateOf(0f) }
+    var seekFrom by remember { mutableLongStateOf(0L) }
     var landscape by remember { mutableStateOf(true) }
     var autoLandscape by remember { mutableStateOf<Boolean?>(null) }
     var zoom by remember { mutableFloatStateOf(1f) }
@@ -378,7 +381,7 @@ fun PlayerScreen(act: PlayerActivity) {
 
             // ---------------- centre: -10s / play-pause / +10s ----------------
             AnimatedVisibility(
-                visible = showControls && !locked,
+                visible = showControls && !locked && !seeking,
                 modifier = Modifier.align(Alignment.Center),
                 enter = fadeIn(tween(250, easing = ease)) + scaleIn(tween(300, easing = ease), initialScale = 0.85f),
                 exit = fadeOut(tween(200, easing = ease)) + scaleOut(tween(250, easing = ease), targetScale = 0.85f)
@@ -395,6 +398,28 @@ fun PlayerScreen(act: PlayerActivity) {
                         Icon(Icons.Default.Forward10, contentDescription = "+10s", tint = Color.White,
                             modifier = Modifier.size(36.dp))
                     }
+                }
+            }
+
+            // ---------------- live time while dragging the seek bar ----------------
+            AnimatedVisibility(
+                visible = seeking,
+                modifier = Modifier.align(Alignment.Center),
+                enter = fadeIn(tween(120)) + scaleIn(tween(150, easing = ease), initialScale = 0.9f),
+                exit = fadeOut(tween(200))
+            ) {
+                val delta = seekValue.toLong() - seekFrom
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .background(Color(0x77000000), RoundedCornerShape(18.dp))
+                        .padding(horizontal = 28.dp, vertical = 14.dp)
+                ) {
+                    Text(fmt(seekValue.toLong()), color = Color.White, fontSize = 46.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "[${if (delta >= 0) "+" else "-"}${fmt(kotlin.math.abs(delta))}]",
+                        color = MaterialTheme.colorScheme.primary, fontSize = 22.sp
+                    )
                 }
             }
 
@@ -474,7 +499,7 @@ fun PlayerScreen(act: PlayerActivity) {
                             style = MaterialTheme.typography.labelMedium)
                         Slider(
                             value = if (seeking) seekValue else position.toFloat().coerceAtMost(maxOf(duration, 1L).toFloat()),
-                            onValueChange = { seeking = true; seekValue = it },
+                            onValueChange = { if (!seeking) { seekFrom = position; seeking = true }; seekValue = it },
                             onValueChangeFinished = { player.seekTo(seekValue.toLong()); seeking = false },
                             valueRange = 0f..maxOf(duration, 1L).toFloat(),
                             modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
