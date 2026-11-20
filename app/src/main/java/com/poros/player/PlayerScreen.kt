@@ -429,6 +429,22 @@ fun PlayerScreen(act: PlayerActivity) {
                 }
             }
 
+            // ---------------- thin progress line (only while controls are hidden) ----------------
+            AnimatedVisibility(
+                visible = !showControls,
+                modifier = Modifier.align(Alignment.BottomCenter),
+                enter = fadeIn(tween(250, easing = ease)),
+                exit = fadeOut(tween(150, easing = ease))
+            ) {
+                val frac = if (duration > 0L) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+                Box(Modifier.fillMaxWidth().height(3.dp).background(Color(0x33FFFFFF))) {
+                    Box(
+                        Modifier.fillMaxWidth(frac).fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                }
+            }
+
             // ---------------- bottom panel ----------------
             AnimatedVisibility(
                 visible = showControls && !locked,
