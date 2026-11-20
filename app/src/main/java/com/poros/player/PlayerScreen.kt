@@ -21,6 +21,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -74,6 +75,7 @@ fun PlayerScreen(act: PlayerActivity) {
     var resizeIdx by remember { mutableIntStateOf(0) }
     var speed by remember { mutableFloatStateOf(1f) }
     var hud by remember { mutableStateOf<String?>(null) }
+    var showRemain by remember { mutableStateOf(st.bool("remain", false)) }   // right-side time: total <-> remaining
     var seeking by remember { mutableStateOf(false) }
     var seekValue by remember { mutableFloatStateOf(0f) }
     var seekFrom by remember { mutableLongStateOf(0L) }
@@ -279,10 +281,14 @@ fun PlayerScreen(act: PlayerActivity) {
                                     act.window.attributes = lp
                                     hud = "Brightness ${(bright * 100).roundToInt()}%"
                                 } else {
-                                    vol = (vol + d * 1.4f).coerceIn(0f, 2f)          // 0..200 %
+                                    // Sound boost (up to 200 %) only in HW+ mode; HW / SW stay at 100 %
+                                    val boostOk = st.decoder == 1
+                                    val maxV = if (boostOk) 2f else 1f
+                                    vol = (vol + d * 1.4f).coerceIn(0f, maxV)
                                     audio.setStreamVolume(AudioManager.STREAM_MUSIC, (vol.coerceAtMost(1f) * maxVol).roundToInt(), 0)
                                     act.fx.updateVolBoost(if (vol > 1f) (vol * 100f).roundToInt() else 100)
-                                    hud = "Volume ${(vol * 100).roundToInt()}%"
+                                    hud = if (!boostOk && vol >= 1f) "Volume 100% • HW+ for sound boost"
+                                    else "Volume ${(vol * 100).roundToInt()}%"
                                 }
                             }
                         )
@@ -504,7 +510,14 @@ fun PlayerScreen(act: PlayerActivity) {
                             valueRange = 0f..maxOf(duration, 1L).toFloat(),
                             modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
                         )
-                        Text(fmt(duration), color = Color.White, style = MaterialTheme.typography.labelMedium)
+                        val shownPos = if (seeking) seekValue.toLong() else position
+                        Text(
+                            if (showRemain) "-" + fmt((duration - shownPos).coerceAtLeast(0L)) else fmt(duration),
+                            color = Color.White, style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier
+                                .clickable { showRemain = !showRemain; st.set("remain", showRemain) }
+                                .padding(horizontal = 4.dp, vertical = 6.dp)
+                        )
                     }
                     // bottom row: lock | prev, play/pause, next | zoom, PiP
                     Row(

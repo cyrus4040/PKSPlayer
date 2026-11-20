@@ -378,7 +378,7 @@ fun SettingsScreen(st: Settings, onAbout: () -> Unit) {
                     modifier = Modifier.padding(end = 8.dp))
             }
         }
-        Text("HW: hardware only • HW+: hardware with software fallback • SW: software preferred",
+        Text("HW: recommended, best quality • HW+: sound boost up to 200% • SW: software preferred",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         SectionTitle("Playback")

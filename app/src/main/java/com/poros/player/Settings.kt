@@ -24,7 +24,7 @@ class Settings private constructor(ctx: Context) {
 
     // ---- simple settings ----
     val theme: String get() = str("theme", "LIME")
-    val decoder: Int get() = int("decoder", 1)          // 0 = HW, 1 = HW+, 2 = SW
+    val decoder: Int get() = int("decoder", 0)          // 0 = HW (recommended), 1 = HW+ (sound boost to 200%), 2 = SW
     val resume: Boolean get() = bool("resume", true)
     val bgPlay: Boolean get() = bool("bgplay", false)
     val autoPip: Boolean get() = bool("autopip", true)

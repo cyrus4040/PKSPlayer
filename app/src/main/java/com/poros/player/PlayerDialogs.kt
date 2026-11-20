@@ -220,9 +220,9 @@ fun SleepDialog(current: Int, onSet: (Int) -> Unit, onDismiss: () -> Unit) {
 @Composable
 fun DecoderDialog(current: Int, onPick: (Int) -> Unit, onDismiss: () -> Unit) {
     val opts = listOf(
-        "HW" to "Hardware decoder only (fast, battery friendly)",
-        "HW+" to "Hardware first, software fallback (recommended)",
-        "SW" to "Software decoder preferred (best compatibility)"
+        "HW" to "Recommended • best quality, fast & battery friendly (volume up to 100%)",
+        "HW+" to "Hardware + software fallback • sound boost, volume up to 200%",
+        "SW" to "Software decoder preferred • best compatibility (volume up to 100%)"
     )
     AlertDialog(
         onDismissRequest = onDismiss,
