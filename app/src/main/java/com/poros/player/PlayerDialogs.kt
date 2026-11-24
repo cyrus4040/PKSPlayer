@@ -116,17 +116,36 @@ fun SubtitleDialog(
     onPick: () -> Unit, onTracks: () -> Unit, onDismiss: () -> Unit
 ) {
     var delay by remember { mutableLongStateOf(act.subDelay) }
+    var on by remember {
+        mutableStateOf(!act.player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT))
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Subtitles") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (on) "Subtitles: ON" else "Subtitles: OFF", Modifier.weight(1f),
+                        style = MaterialTheme.typography.titleSmall)
+                    Switch(checked = on, onCheckedChange = { v ->
+                        on = v
+                        st.set("subon", v)
+                        act.player.trackSelectionParameters = act.player.trackSelectionParameters.buildUpon()
+                            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !v).build()
+                    })
+                }
+                if (!on) {
+                    Text("Turn subtitles on to load a file and customize size, colour, background and delay.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    return@Column
+                }
+                Spacer(Modifier.height(4.dp))
                 Text(act.subName ?: "No external subtitle loaded",
                     color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 Row {
                     TextButton(onClick = onPick) { Text("Load file (SRT / ASS / VTT)") }
                 }
-                TextButton(onClick = onTracks) { Text("Choose / turn off track") }
+                TextButton(onClick = onTracks) { Text("Choose subtitle track") }
 
                 Spacer(Modifier.height(8.dp))
                 Text("Delay: ${delay}ms", style = MaterialTheme.typography.labelLarge)

@@ -144,6 +144,10 @@ class PlayerActivity : ComponentActivity() {
             override fun onAudioSessionIdChanged(audioSessionId: Int) { fx.attach(audioSessionId) }
         })
         fx.attach(exo.audioSessionId)
+        if (!st.bool("subon", true)) {
+            exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+        }
 
         val forced = intent.getLongExtra("startPos", -1L)
         val startPos = when {
@@ -227,6 +231,7 @@ class PlayerActivity : ComponentActivity() {
             player.playWhenReady = play
             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).build()
+            st.set("subon", true)
             subUri = uri; subName = name; subDelay = delayMs
         } catch (e: Exception) {
             toast("Subtitle error: ${e.message}")

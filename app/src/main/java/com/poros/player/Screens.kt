@@ -31,6 +31,9 @@ import androidx.compose.ui.unit.dp
 import coil.ImageLoader
 import coil.compose.AsyncImage
 
+/** Title colour of videos that were already played (so they are easy to spot in the list). */
+val PlayedGreen = Color(0xFF90EE90)
+
 @Composable
 fun Center(content: @Composable () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { content() }
@@ -120,7 +123,11 @@ fun VideoRow(v: VideoItem, st: Settings, loader: ImageLoader, act: Actions, inVa
         Column(Modifier.weight(1f)) {
             Text(
                 v.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium,
-                color = if (selected) primary else Color.Unspecified
+                color = when {
+                    selected -> primary
+                    prog != null -> PlayedGreen
+                    else -> Color.Unspecified
+                }
             )
             Text(
                 "${fmtSize(v.sizeBytes)} • ${v.folder}", style = MaterialTheme.typography.bodySmall,
@@ -350,6 +357,11 @@ fun VaultScreen(videos: List<VideoItem>, st: Settings, loader: ImageLoader, unlo
 fun SettingsScreen(st: Settings, onAbout: () -> Unit) {
     val ctx = LocalContext.current
     var pinDialog by remember { mutableStateOf(false) }
+    var guide by remember { mutableStateOf(false) }
+    val version = remember {
+        try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "" } catch (e: Exception) { "" }
+    }
+    if (guide) GuideDialog { guide = false }
     if (pinDialog) {
         SetPinPanel("Set / change PIN", onDone = { st.setPin(it); pinDialog = false }, onCancel = { pinDialog = false })
         return
@@ -412,9 +424,10 @@ fun SettingsScreen(st: Settings, onAbout: () -> Unit) {
         OutlinedButton(onClick = { st.clearHistory() }) { Text("Clear watch history") }
 
         SectionTitle("About")
+        OutlinedButton(onClick = { guide = true }, modifier = Modifier.fillMaxWidth()) { Text("Quick guide (Subtitles, Presets...)") }
         OutlinedButton(onClick = onAbout, modifier = Modifier.fillMaxWidth()) { Text("Contact & Support") }
         Spacer(Modifier.height(8.dp))
-        Text("PK'S Player 1.0 • Ad-free", style = MaterialTheme.typography.bodySmall,
+        Text("PK'S Player v$version • Ad-free", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

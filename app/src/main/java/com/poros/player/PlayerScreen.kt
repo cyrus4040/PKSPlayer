@@ -94,6 +94,7 @@ fun PlayerScreen(act: PlayerActivity) {
     var fx by remember { mutableStateOf(FxState()) }
     var compare by remember { mutableStateOf(false) }
     var hudText by remember { mutableStateOf("") }
+    var coach by remember { mutableStateOf(!st.bool("coach_v1", false)) }   // first-run "where is what" overlay
 
     val audio = remember { act.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val maxVol = remember { audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) }
@@ -143,8 +144,8 @@ fun PlayerScreen(act: PlayerActivity) {
             delay(250)
         }
     }
-    LaunchedEffect(showControls, isPlaying, locked, dialog, seeking, moreOpen) {
-        if (showControls && isPlaying && dialog == null && !seeking) { delay(3500); showControls = false }
+    LaunchedEffect(showControls, isPlaying, locked, dialog, seeking, moreOpen, coach) {
+        if (showControls && isPlaying && dialog == null && !seeking && !coach) { delay(3500); showControls = false }
     }
     LaunchedEffect(showControls) { if (!showControls) moreOpen = false }
     LaunchedEffect(hud) {
@@ -269,9 +270,20 @@ fun PlayerScreen(act: PlayerActivity) {
                     .pointerInput(locked) {
                         if (locked) return@pointerInput
                         var leftSide = true
+                        var edgeIgnore = false
+                        // swipes that start at the very top (notification shade) or bottom (gesture bar)
+                        // belong to the system, so volume / brightness must not react to them
+                        val edgeTop = 90.dp.toPx()
+                        val edgeBottom = 48.dp.toPx()
                         detectVerticalDragGestures(
-                            onDragStart = { o -> leftSide = o.x < size.width / 2f },
+                            onDragStart = { o ->
+                                leftSide = o.x < size.width / 2f
+                                edgeIgnore = o.y < edgeTop || o.y > size.height - edgeBottom
+                            },
+                            onDragCancel = { edgeIgnore = false },
+                            onDragEnd = { edgeIgnore = false },
                             onVerticalDrag = { change, dy ->
+                                if (edgeIgnore) return@detectVerticalDragGestures
                                 change.consume()
                                 val d = -dy / size.height * 1.5f
                                 if (leftSide) {
@@ -296,15 +308,22 @@ fun PlayerScreen(act: PlayerActivity) {
                     .pointerInput(locked) {
                         if (locked) return@pointerInput
                         var target = 0L
+                        var edgeIgnore = false
+                        val edgeSide = 28.dp.toPx()
                         detectHorizontalDragGestures(
-                            onDragStart = { target = player.currentPosition },
+                            onDragStart = { o ->
+                                target = player.currentPosition
+                                edgeIgnore = o.x < edgeSide || o.x > size.width - edgeSide
+                            },
+                            onDragCancel = { edgeIgnore = false },
                             onHorizontalDrag = { change, dx ->
+                                if (edgeIgnore) return@detectHorizontalDragGestures
                                 change.consume()
                                 val dur = player.duration.coerceAtLeast(0L)
                                 target = (target + dx * 100).toLong().coerceIn(0L, dur)
                                 hud = fmt(target)
                             },
-                            onDragEnd = { player.seekTo(target) }
+                            onDragEnd = { if (!edgeIgnore) player.seekTo(target); edgeIgnore = false }
                         )
                     }
             )
@@ -394,11 +413,26 @@ fun PlayerScreen(act: PlayerActivity) {
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(110.dp)
+                    horizontalArrangement = Arrangement.spacedBy(44.dp)
                 ) {
                     IconButton(onClick = { seekBy(-10_000) }, modifier = Modifier.size(56.dp)) {
                         Icon(Icons.Default.Replay10, contentDescription = "-10s", tint = Color.White,
                             modifier = Modifier.size(36.dp))
+                    }
+                    FilledIconButton(
+                        onClick = { if (isPlaying) player.pause() else player.play() },
+                        modifier = Modifier.size(68.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    ) {
+                        Crossfade(targetState = isPlaying, animationSpec = tween(200), label = "centrePlayPause") { playing ->
+                            Icon(
+                                if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (playing) "Pause" else "Play", modifier = Modifier.size(42.dp)
+                            )
+                        }
                     }
                     IconButton(onClick = { seekBy(10_000) }, modifier = Modifier.size(56.dp)) {
                         Icon(Icons.Default.Forward10, contentDescription = "+10s", tint = Color.White,
@@ -551,20 +585,7 @@ fun PlayerScreen(act: PlayerActivity) {
                             IconButton(onClick = { player.seekToPreviousMediaItem() }) {
                                 Icon(Icons.Default.SkipPrevious, contentDescription = "Previous", tint = Color.White)
                             }
-                            FilledIconButton(
-                                onClick = { if (isPlaying) player.pause() else player.play() },
-                                modifier = Modifier.padding(horizontal = 16.dp).size(56.dp),
-                                colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = Color(0xFF00C853), contentColor = Color.White
-                                )
-                            ) {
-                                Crossfade(targetState = isPlaying, animationSpec = tween(200), label = "playpause") { playing ->
-                                    Icon(
-                                        if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                        contentDescription = "Play/Pause", modifier = Modifier.size(34.dp)
-                                    )
-                                }
-                            }
+                            Spacer(Modifier.width(40.dp))
                             IconButton(onClick = { player.seekToNextMediaItem() }) {
                                 Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White)
                             }
@@ -599,6 +620,9 @@ fun PlayerScreen(act: PlayerActivity) {
                     modifier = Modifier.fillMaxHeight().widthIn(max = 340.dp).fillMaxWidth(0.9f)
                 )
             }
+
+            // ---------------- first-run: where Subtitles / Presets are ----------------
+            if (coach) PlayerCoach(onDone = { coach = false; st.set("coach_v1", true) })
 
             // ---------------- dialogs ----------------
             val close = { dialog = null }

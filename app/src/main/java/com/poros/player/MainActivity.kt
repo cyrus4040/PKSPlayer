@@ -79,6 +79,7 @@ fun App() {
     var playlist by remember { mutableStateOf<String?>(null) }
     var showAbout by remember { mutableStateOf(false) }
     var showStream by remember { mutableStateOf(false) }
+    var showGuide by remember { mutableStateOf(!st.bool("guide_v1", false)) }
     var searching by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var vaultUnlocked by remember { mutableStateOf(false) }
@@ -238,6 +239,8 @@ fun App() {
         onDismiss = { newFolderDialog = false }
     )
     ops.busy?.let { BusyDialog(it) }
+
+    if (showGuide) GuideDialog { showGuide = false; st.set("guide_v1", true) }
 
     if (showStream) StreamDialog(
         onDismiss = { showStream = false },
