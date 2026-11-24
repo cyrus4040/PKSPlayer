@@ -15,8 +15,17 @@ jobs:
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: 8.7
+      - name: Read app version
+        id: ver
+        run: |
+          VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -n1)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - run: gradle assembleDebug --stacktrace
+      - name: Name the APK with app name + version
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/*.apk "dist/PKSPlayer-v${{ steps.ver.outputs.version }}.apk"
       - uses: actions/upload-artifact@v4
         with:
-          name: PKSPlayer-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: PKSPlayer-v${{ steps.ver.outputs.version }}
+          path: dist/PKSPlayer-v${{ steps.ver.outputs.version }}.apk
