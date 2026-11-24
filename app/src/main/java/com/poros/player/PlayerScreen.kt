@@ -423,8 +423,8 @@ fun PlayerScreen(act: PlayerActivity) {
                         onClick = { if (isPlaying) player.pause() else player.play() },
                         modifier = Modifier.size(68.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
+                            containerColor = Color(0x55000000),
+                            contentColor = Color.White
                         )
                     ) {
                         Crossfade(targetState = isPlaying, animationSpec = tween(200), label = "centrePlayPause") { playing ->
@@ -585,7 +585,20 @@ fun PlayerScreen(act: PlayerActivity) {
                             IconButton(onClick = { player.seekToPreviousMediaItem() }) {
                                 Icon(Icons.Default.SkipPrevious, contentDescription = "Previous", tint = Color.White)
                             }
-                            Spacer(Modifier.width(40.dp))
+                            FilledIconButton(
+                                onClick = { if (isPlaying) player.pause() else player.play() },
+                                modifier = Modifier.padding(horizontal = 16.dp).size(56.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = Color(0xFF00C853), contentColor = Color.White
+                                )
+                            ) {
+                                Crossfade(targetState = isPlaying, animationSpec = tween(200), label = "playpause") { playing ->
+                                    Icon(
+                                        if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = "Play/Pause", modifier = Modifier.size(34.dp)
+                                    )
+                                }
+                            }
                             IconButton(onClick = { player.seekToNextMediaItem() }) {
                                 Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White)
                             }
