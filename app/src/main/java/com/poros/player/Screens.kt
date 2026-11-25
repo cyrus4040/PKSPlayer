@@ -70,6 +70,8 @@ fun VideoRow(v: VideoItem, st: Settings, loader: ImageLoader, act: Actions, inVa
     )
     val fav = v.key in st.favorites()
     val prog = st.progress(v.key)
+    // Only the most recently played video is shown in green (not every viewed one)
+    val isLastPlayed = prog != null && st.recent().firstOrNull() == v.key
     val frac = if (prog != null && prog.second > 0) (prog.first.toFloat() / prog.second).coerceIn(0f, 1f) else 0f
 
     Row(
@@ -125,7 +127,7 @@ fun VideoRow(v: VideoItem, st: Settings, loader: ImageLoader, act: Actions, inVa
                 v.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium,
                 color = when {
                     selected -> primary
-                    prog != null -> PlayedGreen
+                    isLastPlayed -> PlayedGreen
                     else -> Color.Unspecified
                 }
             )
